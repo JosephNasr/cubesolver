@@ -11,7 +11,6 @@ namespace CubeSolver
             var cube = new Cube();
 
             cube.Scramble();
-            cube.Clockwise(Color.White);
             cube.Print();
 
             Console.ReadKey(true);

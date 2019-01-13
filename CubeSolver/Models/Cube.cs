@@ -8,42 +8,29 @@ namespace CubeSolver.Models
 {
     public class Cube
     {
-        private readonly Color Red;
-        private readonly Color Blue;
-        private readonly Color Green;
-        private readonly Color White;
-        private readonly Color Yellow;
-        private readonly Color Orange;
-
-        private readonly List<Edge> Edges;
-        private readonly List<Corner> Corners;
+        private readonly IEnumerable<Edge> _edges;
+        private readonly IEnumerable<Corner> _corners;
 
         /// <summary>
-        /// List of adjacent colors for each color (in clockwise order)
+        /// List of adjacent colors for each center (in clockwise order)
         /// </summary>
-        private readonly Dictionary<Color, List<Color>> AdjacentColorMap;
+        private readonly IDictionary<Color, IEnumerable<Color>> _adjacentColorMap;
 
         public Cube()
         {
-            Red = Color.Red;
-            Blue = Color.Blue;
-            Green = Color.Green;
-            White = Color.White;
-            Yellow = Color.Yellow;
-            Orange = Color.Orange;
-            Edges = GetEdges();
-            Corners = GetCorners();
-            AdjacentColorMap = GetColorMap();
+            _edges = GetEdges();
+            _corners = GetCorners();
+            _adjacentColorMap = GetColorMap();
         }
 
-        public void Clockwise(Color color)
+        public void Clockwise(Color centerColor)
         {
-            Rotate(color, true);
+            Rotate(centerColor, true);
         }
 
-        public void AntiClockwise(Color color)
+        public void AntiClockwise(Color centerColor)
         {
-            Rotate(color, false);
+            Rotate(centerColor, false);
         }
 
         public void Scramble(int moves = 20)
@@ -58,14 +45,7 @@ namespace CubeSolver.Models
                 var parity = random.Next(2);
                 var selectedColor = (Color)colors.GetValue(random.Next(colors.Length));
 
-                if (parity == 0)
-                {
-                    Clockwise(selectedColor);
-                }
-                else
-                {
-                    AntiClockwise(selectedColor);
-                }
+                (parity == 0 ? (Action<Color>)Clockwise : AntiClockwise)(selectedColor);
 
                 Console.Write(selectedColor.ToString()[0] + (parity == 0 ? "" : "'") + " ");
             }
@@ -75,165 +55,116 @@ namespace CubeSolver.Models
 
         public void Print(bool withDetails = false)
         {
-            var colors = Enum.GetValues(typeof(Color));
+            var allColors = Enum.GetValues(typeof(Color));
 
-            foreach (Color color in colors)
+            foreach (Color color in allColors)
             {
-                PrintFace(color, withDetails);
+                PrintCubeFace(color, withDetails);
             }
         }
 
-        private void Rotate(Color color, bool isClockwise)
+        private void Rotate(Color centerColor, bool isClockwise)
         {
-            RotateEdges(color, isClockwise);
-            RotateCorners(color, isClockwise);
+            RotateEdges(centerColor, isClockwise);
+            RotateCorners(centerColor, isClockwise);
         }
 
-        private void RotateEdges(Color color, bool isClockwise)
+        private void RotateEdges(Color centerColor, bool isClockwise)
         {
-            var adjacent = AdjacentColorMap[color];
-            var adjacentEdges = Edges.Where(edge => edge.Face1.Center == color || edge.Face2.Center == color);
+            var adjacentColors = _adjacentColorMap[centerColor];
 
-            foreach (var edge in adjacentEdges)
+            foreach (var edge in _edges.Where(edge => edge.ContainsCenter(centerColor)))
             {
-                if (edge.Face1.Center == color)
-                {
-                    RotateFace(adjacent, edge.Face2, isClockwise);
-                }
-                else
-                {
-                    RotateFace(adjacent, edge.Face1, isClockwise);
-                }
+                var (centeredFace, invertedCenteredFace) = edge.GetFacesByCenter(centerColor);
+                RotateFace(invertedCenteredFace, adjacentColors, isClockwise);
             }
         }
 
-        private void RotateCorners(Color color, bool isClockwise)
+        private void RotateCorners(Color centerColor, bool isClockwise)
         {
-            var adjacent = AdjacentColorMap[color];
-            var adjacentCorners = Corners.Where(corner => corner.Face1.Center == color || corner.Face2.Center == color || corner.Face3.Center == color);
+            var adjacentColors = _adjacentColorMap[centerColor];
 
-            foreach (var corner in adjacentCorners)
+            foreach (var corner in _corners.Where(corner => corner.ContainsCenter(centerColor)))
             {
-                if (corner.Face1.Center == color)
-                {
-                    RotateFace(adjacent, corner.Face2, isClockwise);
-                    RotateFace(adjacent, corner.Face3, isClockwise);
-                }
-                else if (corner.Face2.Center == color)
-                {
-                    RotateFace(adjacent, corner.Face1, isClockwise);
-                    RotateFace(adjacent, corner.Face3, isClockwise);
-                }
-                else
-                {
-                    RotateFace(adjacent, corner.Face1, isClockwise);
-                    RotateFace(adjacent, corner.Face2, isClockwise);
-                }
+                var (centeredFace, otherCenteredFace1, otherCenteredFace2) = corner.GetFacesByCenter(centerColor);
+                RotateFace(otherCenteredFace1, adjacentColors, isClockwise);
+                RotateFace(otherCenteredFace2, adjacentColors, isClockwise);
             }
         }
 
-        private void RotateFace(List<Color> adjacent, Face face, bool isClockwise)
+        private void RotateFace(Face faceToRotate, IEnumerable<Color> adjacentColors, bool isClockwise)
         {
             var offset = isClockwise ? 1 : 3;
-            var index = adjacent.FindIndex(color => color == face.Center) + offset;
-            index %= 4;
-            face.Center = adjacent[index];
+            var index = adjacentColors.ToList().FindIndex(color => color == faceToRotate.Center) + offset;
+
+            faceToRotate.ChangeCenter(adjacentColors.ElementAt(index % 4));
         }
 
-        private void PrintFace(Color color, bool withDetails = false)
+        private void PrintCubeFace(Color centerColor, bool withDetails = false)
         {
-            Console.WriteLine($"{color}:");
+            Console.WriteLine($"{centerColor}:");
 
-            PrintEdges(color, withDetails);
+            PrintEdges(centerColor, withDetails);
             Console.WriteLine();
 
-            PrintCorners(color, withDetails);
+            PrintCorners(centerColor, withDetails);
             Console.WriteLine();
         }
 
-        private void PrintEdges(Color color, bool withDetails = false)
+        private void PrintEdges(Color centerColor, bool withDetails = false)
         {
             Console.Write("\tEdges:\t\t");
 
-            Edges.Where(edge => edge.Face1.Center == color || edge.Face2.Center == color).ToList().ForEach(edge =>
+            foreach (var edge in _edges.Where(edge => edge.ContainsCenter(centerColor)))
             {
-                var message = "";
-
-                if (edge.Face1.Center == color)
-                {
-                    message += $"{edge.Face1.Color}{(withDetails ? $"({edge.Face2.Center})\t" : "")}";
-                }
-                else
-                {
-                    message += $"{edge.Face2.Color}{(withDetails ? $"({edge.Face1.Center})\t" : "")}";
-                }
-
-                Console.Write($"{message}\t");
-            });
+                var (centeredFace, invertedCenteredFace) = edge.GetFacesByCenter(centerColor);
+                Console.Write($"{centeredFace.Color}{(withDetails ? $"({invertedCenteredFace.Center})\t" : "")}\t");
+            }
         }
 
-        private void PrintCorners(Color color, bool withDetails = false)
+        private void PrintCorners(Color centerColor, bool withDetails = false)
         {
             Console.Write("\tCorners:\t");
 
-            Corners.Where(corner => corner.Face1.Center == color || corner.Face2.Center == color || corner.Face3.Center == color).ToList().ForEach(corner =>
+            foreach (var corner in _corners.Where(corner => corner.ContainsCenter(centerColor)))
             {
-                var message = "";
-
-                if (corner.Face1.Center == color)
-                {
-                    message += $"{corner.Face1.Color}{(withDetails ? $"({corner.Face2.Center}-{corner.Face3.Center})" : "")}";
-                }
-                else if (corner.Face2.Center == color)
-                {
-                    message += $"{corner.Face2.Color}{(withDetails ? $"({corner.Face1.Center}-{corner.Face3.Center})" : "")}";
-                }
-                else
-                {
-                    message += $"{corner.Face3.Color}{(withDetails ? $"({corner.Face1.Center}-{corner.Face2.Center})" : "")}";
-                }
-
-                Console.Write($"{message}\t");
-            });
+                var (centeredFace, otherCenteredFace1, otherCenteredFace2) = corner.GetFacesByCenter(centerColor);
+                Console.Write($"{centeredFace.Color}{(withDetails ? $"({otherCenteredFace1.Center}-{otherCenteredFace2.Center})" : "")}\t");
+            }
         }
 
-        private List<Edge> GetEdges()
-        {
-            return new List<Edge>
+        private IEnumerable<Edge> GetEdges() =>
+            new HashSet<Edge>
             {
-                new Edge(Blue, White),
-                new Edge(Blue, Orange),
-                new Edge(Blue, Yellow),
-                new Edge(Blue, Red),
-                new Edge(Green, White),
-                new Edge(Green, Orange),
-                new Edge(Green, Yellow),
-                new Edge(Green, Red),
-                new Edge(Yellow, Orange),
-                new Edge(Yellow, Red),
-                new Edge(Red, White),
-                new Edge(White, Orange),
+                new Edge(Color.Blue, Color.White),
+                new Edge(Color.Blue, Color.Orange),
+                new Edge(Color.Blue, Color.Yellow),
+                new Edge(Color.Blue, Color.Red),
+                new Edge(Color.Green, Color.White),
+                new Edge(Color.Green, Color.Orange),
+                new Edge(Color.Green, Color.Yellow),
+                new Edge(Color.Green, Color.Red),
+                new Edge(Color.White, Color.Orange),
+                new Edge(Color.White, Color.Red),
+                new Edge(Color.Yellow, Color.Orange),
+                new Edge(Color.Yellow, Color.Red),
             };
-        }
 
-        private List<Corner> GetCorners()
-        {
-            return new List<Corner>
+        private IEnumerable<Corner> GetCorners() =>
+            new HashSet<Corner>
             {
-                new Corner(Blue, White, Orange),
-                new Corner(Blue, White, Red),
-                new Corner(Blue, Yellow, Orange),
-                new Corner(Blue, Yellow, Red),
-                new Corner(Green, White, Orange),
-                new Corner(Green, White, Red),
-                new Corner(Green, Yellow, Orange),
-                new Corner(Green, Yellow, Red),
+                new Corner(Color.Blue, Color.White, Color.Orange),
+                new Corner(Color.Blue, Color.White, Color.Red),
+                new Corner(Color.Blue, Color.Yellow, Color.Orange),
+                new Corner(Color.Blue, Color.Yellow, Color.Red),
+                new Corner(Color.Green, Color.White, Color.Orange),
+                new Corner(Color.Green, Color.White, Color.Red),
+                new Corner(Color.Green, Color.Yellow, Color.Orange),
+                new Corner(Color.Green, Color.Yellow, Color.Red),
             };
-        }
 
-        private static Dictionary<Color, List<Color>> GetColorMap()
-        {
-            return new Dictionary<Color, List<Color>>
+        private static Dictionary<Color, IEnumerable<Color>> GetColorMap() =>
+            new Dictionary<Color, IEnumerable<Color>>
             {
                 { Color.Red, new List<Color> { Color.White, Color.Blue, Color.Yellow, Color.Green } },
                 { Color.Blue, new List<Color> { Color.White, Color.Orange, Color.Yellow, Color.Red } },
@@ -242,6 +173,5 @@ namespace CubeSolver.Models
                 { Color.Yellow, new List<Color> { Color.Red, Color.Blue, Color.Orange, Color.Green } },
                 { Color.Orange, new List<Color> { Color.White, Color.Green, Color.Yellow, Color.Blue } },
             };
-        }
     }
 }
